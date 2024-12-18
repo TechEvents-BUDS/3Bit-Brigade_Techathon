@@ -1,59 +1,111 @@
-from PIL import Image, ImageDraw, ImageFont
-import time
+import tensorflow as tf
+import numpy as np
+from PIL import Image
+import pygame
 
-# List of image file paths and their labels (healthy or diseased) with descriptions
-image_files = [
-    ("tomato disease.jpg", "Diseased Tomato", "This tomato plant is suffering from a common disease. You can improve its health by removing infected leaves, using fungicides, and ensuring proper watering practices."),
-    ("healthy tree.jpg", "Healthy Tree", "This tree is healthy. Ensure it continues receiving adequate sunlight, water, and regular pruning to maintain its good health.")
-]
+# Load a pre-trained MobileNetV2 model with ImageNet weights
+model = tf.keras.applications.MobileNetV2(weights="imagenet")
 
-def add_label_to_image(image_path, label, description):
-    """Open an image, add a label and description in a separate text box, and display it."""
-    try:
-        # Open the image from the file path
-        img = Image.open(image_path)
+def load_and_preprocess_image(image_path, target_size=(224, 224)):
+    """Load and preprocess the image using PIL."""
+    img = Image.open(image_path)
+    img = img.resize(target_size)  # Resize to 224x224 for MobileNetV2
+    img_array = np.array(img) / 255.0  # Normalize the image
+    img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
+    return img_array
 
-        # Add a label to the image (if needed)
-        draw = ImageDraw.Draw(img)
-        
-        # Font size for the label and description
-        try:
-            label_font = ImageFont.load_default()
-            description_font = ImageFont.truetype("arial.ttf", size=20)  # Larger font for description
-        except IOError:
-            label_font = None
-            description_font = ImageFont.load_default()
-        
-        # Position to place the label text
-        label_position = (10, 10)  # Top-left corner for the label
-        
-        # Position to place the description text box
-        description_box_position = (10, 50)  # Start of the box for the description
-        box_width = img.width - 20  # Width of the text box
-        box_height = 100  # Height of the text box
+def classify_image(img_array):
+    """Classify the image and return the label."""
+    preds = model.predict(img_array)
+    decoded_preds = tf.keras.applications.mobilenet_v2.decode_predictions(preds, top=1)[0][0][1]
+    return decoded_preds
 
-        # Draw the background box for the description
-        draw.rectangle([description_box_position, (box_width, description_box_position[1] + box_height)], fill=(0, 0, 0, 128))
+def display_with_pygame(image_path, label):
+    """Display the image and outputs in a simple layout using Pygame."""
+    # Initialize Pygame
+    pygame.init()
 
-        # Add the label text (plant status)
-        draw.text(label_position, label, font=label_font, fill="white")
-        
-        # Add the description text in the separate text box
-        draw.text((description_box_position[0] + 10, description_box_position[1] + 10), description, font=description_font, fill="white")
+    # Set up the display
+    screen_width, screen_height = 800, 600
+    screen = pygame.display.set_mode((screen_width, screen_height))
+    pygame.display.set_caption("Tree Health Classification")
 
-        # Display the image with the label and description
-        img.show()  # This will open the image with the label and description in a box
-    except Exception as e:
-        print(f"Error processing image {image_path}: {e}")
+    # Load the image and convert it to a Pygame surface
+    img = Image.open(image_path).convert("RGB")
+    img_width, img_height = img.size
+    img_surface = pygame.surfarray.make_surface(np.array(img))
+
+    # Scale the image to fit within the display area
+    scale_factor = min((screen_width - 50) / img_width, (screen_height - 200) / img_height)
+    new_width, new_height = int(img_width * scale_factor), int(img_height * scale_factor)
+    img_surface = pygame.transform.scale(img_surface, (new_width, new_height))
+
+    # Fonts for headings and description
+    font_title = pygame.font.SysFont("arial", 32)
+    font_text = pygame.font.SysFont("arial", 24)
+
+    # Prepare the description
+    description = (
+        "This tree is healthy. Ensure adequate sunlight, water, and pruning."
+        if label == "Healthy"
+        else "This tree is diseased. Remove infected leaves and use fungicides."
+    )
+
+    # Main event loop
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        # Fill the screen with a white background
+        screen.fill((255, 255, 255))
+
+        # Draw the title
+        title_surface = font_title.render("Tree Health Classification", True, (0, 0, 0))
+        screen.blit(title_surface, ((screen_width - title_surface.get_width()) // 2, 20))
+
+        # Draw the image
+        image_x = (screen_width - new_width) // 2
+        screen.blit(img_surface, (image_x, 80))
+
+        # Draw the classification result
+        result_surface = font_text.render(f"Classification: {label}", True, (0, 0, 0))
+        screen.blit(result_surface, (20, new_height + 100))
+
+        # Draw the description
+        description_surface = font_text.render(f"Description: {description}", True, (0, 0, 0))
+        screen.blit(description_surface, (20, new_height + 140))
+
+        # Update the display
+        pygame.display.flip()
+
+    pygame.quit()
 
 def main():
-    """Main function to display images with labels and descriptions in separate text boxes one by one."""
-    for file_path, label, description in image_files:
-        print(f"Displaying image from: {file_path} with label: {label}")
-        add_label_to_image(file_path, label, description)
-        
-        # Wait for 5 seconds before displaying the next image
-        time.sleep(5)
+    """Main function to classify and display the tree image."""
+    image_path = "defg.jpeg"  # Replace with your image file path
+
+    print(f"Classifying image: {image_path}")
+
+    # Preprocess the image
+    img_array = load_and_preprocess_image(image_path)
+
+    # Classify the image
+    label = classify_image(img_array)
+
+    # You can refine the decision logic for whether it's healthy or diseased
+    # For this example, we map the label to a more general "Healthy" or "Diseased"
+    healthy_keywords = ["tree", "oak", "palm", "maple"]
+    diseased_keywords = ["wilt", "fungus", "blight", "diseased"]
+
+    # Check if the label contains any keywords for healthy or diseased trees
+    label = "Healthy" if any(keyword in label.lower() for keyword in healthy_keywords) else "Diseased"
+    
+    print(f"Label: {label}")
+
+    # Display the result with Pygame
+    display_with_pygame(image_path, label)
 
 if __name__ == "__main__":
     main()
